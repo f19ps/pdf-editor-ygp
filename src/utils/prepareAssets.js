@@ -8,6 +8,10 @@ const scripts = [
     src: 'https://unpkg.com/pdf-lib@1.4.0/dist/pdf-lib.min.js',
   },
   {
+    name: 'fontkit',
+    src: 'https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js',
+  },
+  {
     name: 'download',
     src: 'https://unpkg.com/downloadjs@1.4.7',
   },
@@ -71,12 +75,27 @@ export const Fonts = {
       return (size * lineHeight - size) / 2;
     },
   },
+  // Signature font
+  'Satisfy': {
+    src: 'https://fonts.gstatic.com/s/satisfy/v17/rP2Hp2yn6lkG50LoCZOIHQ.woff2',
+    correction(size, lineHeight) {
+      return (size * lineHeight - size) / 2 + size / 8;
+    },
+  },
 };
 
 export function fetchFont(name) {
   if (fonts[name]) return fonts[name];
   const font = Fonts[name];
   if (!font) throw new Error(`Font '${name}' not exists.`);
+  
+  // If it's a built-in font (no src), return it directly
+  if (!font.src) {
+    fonts[name] = font;
+    return fonts[name];
+  }
+  
+  // Load external font
   fonts[name] = fetch(font.src)
     .then((r) => r.arrayBuffer())
     .then((fontBuffer) => {

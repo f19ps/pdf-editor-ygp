@@ -3,16 +3,14 @@
   import { fly } from "svelte/transition";
   import Tailwind from "./Tailwind.svelte";
   import PDFPage from "./PDFPage.svelte";
-  import Image from "./Image.svelte";
+
   import Text from "./Text.svelte";
   import Drawing from "./Drawing.svelte";
   import DrawingCanvas from "./DrawingCanvas.svelte";
   import prepareAssets, { fetchFont } from "./utils/prepareAssets.js";
   import {
     readAsArrayBuffer,
-    readAsImage,
-    readAsPDF,
-    readAsDataURL
+    readAsPDF
   } from "./utils/asyncReader.js";
   import { ggID } from "./utils/helper.js";
   import { save } from "./utils/PDF.js";
@@ -21,12 +19,15 @@
   let pdfName = "";
   let pages = [];
   let pagesScale = [];
-  let allObjects = [];
+  let allObjects = [[]]; // Initialize with at least one empty page array
   let currentFont = "Times-Roman";
+  let signatureFont = "Satisfy";
   let focusId = null;
   let selectedPageIndex = -1;
   let saving = false;
   let addingDrawing = false;
+  let addingSignature = false;
+  let signatureText = "";
   // for test purpose
   onMount(async () => {
     try {
@@ -38,8 +39,15 @@
         fetchFont(currentFont);
         prepareAssets();
       }, 5000);
-      // const imgBlob = await (await fetch("/test.jpg")).blob();
-      // addImage(imgBlob);
+      
+      // Load the default signature font
+      try {
+        await fetchFont(signatureFont);
+      } catch (e) {
+        console.log(`Default font ${signatureFont} not available, using fallback`);
+        signatureFont = 'Times-Roman';
+      }
+
       // addTextField("測試!");
       // addDrawing(200, 100, "M30,30 L100,50 L50,70", 0.5);
     } catch (e) {
@@ -74,37 +82,7 @@
       throw e;
     }
   }
-  async function onUploadImage(e) {
-    const file = e.target.files[0];
-    if (file && selectedPageIndex >= 0) {
-      addImage(file);
-    }
-    e.target.value = null;
-  }
-  async function addImage(file) {
-    try {
-      // get dataURL to prevent canvas from tainted
-      const url = await readAsDataURL(file);
-      const img = await readAsImage(url);
-      const id = genID();
-      const { width, height } = img;
-      const object = {
-        id,
-        type: "image",
-        width,
-        height,
-        x: 0,
-        y: 0,
-        payload: img,
-        file
-      };
-      allObjects = allObjects.map((objects, pIndex) =>
-        pIndex === selectedPageIndex ? [...objects, object] : objects
-      );
-    } catch (e) {
-      console.log(`Fail to add image.`, e);
-    }
-  }
+
   function onAddTextField() {
     if (selectedPageIndex >= 0) {
       addTextField();
@@ -150,6 +128,45 @@
       pIndex === selectedPageIndex ? [...objects, object] : objects
     );
   }
+  
+  async function addTypedSignature(text) {
+    const id = genID();
+    
+    // Try to fetch the selected font
+    try {
+      await fetchFont(signatureFont);
+      console.log(`Font ${signatureFont} loaded successfully for signature`);
+    } catch (e) {
+      console.log(`Font ${signatureFont} not available, using fallback`);
+      signatureFont = 'Times-Roman';
+    }
+    
+    const object = {
+      id,
+      text,
+      type: "text",
+      size: 28,
+      width: text.length * 28 * 0.8, // Estimate width for signature font (more space for cursive)
+      lineHeight: 1.2,
+      fontFamily: signatureFont,
+      x: 300, // Position signature in center area
+      y: 400, // Position signature in center area
+      lines: [text] // Add lines property for PDF rendering
+    };
+    
+    console.log('Signature object created:', JSON.stringify(object, null, 2));
+    
+    console.log('Created signature object:', object);
+    console.log('Current selectedPageIndex:', selectedPageIndex);
+    console.log('Current allObjects:', allObjects);
+    
+    allObjects = allObjects.map((objects, pIndex) =>
+      pIndex === selectedPageIndex ? [...objects, object] : objects
+    );
+    
+    console.log('Updated allObjects:', allObjects);
+    console.log('Objects on selected page:', allObjects[selectedPageIndex]);
+  }
   function selectFontFamily(event) {
     const name = event.detail.name;
     fetchFont(name);
@@ -182,6 +199,10 @@
     if (!pdfFile || saving || !pages.length) return;
     saving = true;
     try {
+      console.log('Saving PDF with objects:', allObjects);
+      console.log('Number of pages:', pages.length);
+      console.log('Objects per page:', allObjects.map((objects, i) => `Page ${i}: ${objects.length} objects`));
+      console.log('Selected page index:', selectedPageIndex);
       await save(pdfFile, allObjects, pdfName, pagesScale);
     } catch (e) {
       console.log(e);
@@ -206,12 +227,7 @@
       id="pdf"
       on:change={onUploadPDF}
       class="hidden" />
-    <input
-      type="file"
-      id="image"
-      name="image"
-      class="hidden"
-      on:change={onUploadImage} />
+
     <label
       class="whitespace-no-wrap bg-blue-500 hover:bg-blue-700 text-white
       font-bold py-1 px-3 md:px-4 rounded mr-3 cursor-pointer md:mr-4"
@@ -219,42 +235,37 @@
       Choose PDF
     </label>
     <div
-      class="relative mr-3 flex h-8 bg-gray-400 rounded-sm overflow-hidden
-      md:mr-4">
+      class="relative mr-3 flex flex-row items-center gap-3 md:mr-4">
+
       <label
-        class="flex items-center justify-center h-full w-8 hover:bg-gray-500
-        cursor-pointer"
-        for="image"
-        class:cursor-not-allowed={selectedPageIndex < 0}
-        class:bg-gray-500={selectedPageIndex < 0}>
-        <img src="image.svg" alt="An icon for adding images" />
-      </label>
-      <label
-        class="flex items-center justify-center h-full w-8 hover:bg-gray-500
-        cursor-pointer"
+        class="flex flex-row items-center justify-center py-1 px-3 md:px-4 w-14 h-14 bg-gray-400 hover:bg-gray-500
+        cursor-pointer rounded-sm transition-colors"
         for="text"
         class:cursor-not-allowed={selectedPageIndex < 0}
         class:bg-gray-500={selectedPageIndex < 0}
         on:click={onAddTextField}>
-        <img src="notes.svg" alt="An icon for adding text" />
+        <img src="notes.svg" alt="An icon for adding text" class="w-5 h-5 mb-1" />
+        <span class="text-xs text-gray-700 font-medium">Text</span>
       </label>
       <label
-        class="flex items-center justify-center h-full w-8 hover:bg-gray-500
-        cursor-pointer"
-        on:click={onAddDrawing}
+        class="flex flex-row items-center justify-center py-1 px-3 md:px-4 w-14 h-14 bg-gray-400 hover:bg-gray-500
+        cursor-pointer rounded-sm transition-colors"
+        on:click={() => {
+          console.log('Signature button clicked, selectedPageIndex:', selectedPageIndex);
+          if (selectedPageIndex >= 0) {
+            addingSignature = true;
+            signatureText = " "; // Initialize with space to show typing interface
+          } else {
+            console.log('No page selected, cannot add signature');
+          }
+        }}
         class:cursor-not-allowed={selectedPageIndex < 0}
         class:bg-gray-500={selectedPageIndex < 0}>
-        <img src="gesture.svg" alt="An icon for adding drawing" />
+        <img src="gesture.svg" alt="An icon for adding signature" class="w-5 h-5 mb-1" />
+        <span class="text-xs text-gray-700 font-medium">Signature</span>
       </label>
     </div>
-    <div class="justify-center mr-3 md:mr-4 w-full max-w-xs hidden md:flex">
-      <img src="/edit.svg" class="mr-2" alt="a pen, edit pdf name" />
-      <input
-        placeholder="Rename your PDF here"
-        type="text"
-        class="flex-grow bg-transparent"
-        bind:value={pdfName} />
-    </div>
+
     <button
       on:click={savePDF}
       class="w-20 bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3
@@ -263,11 +274,6 @@
       class:bg-blue-700={pages.length === 0 || saving || !pdfFile}>
       {saving ? 'Saving' : 'Save'}
     </button>
-    <a href="https://github.com/ShizukuIchi/pdf-editor">
-      <img
-        src="/GitHub-Mark-32px.png"
-        alt="A GitHub icon leads to personal GitHub page" />
-    </a>
   </div>
   {#if addingDrawing}
     <div
@@ -288,15 +294,98 @@
         on:cancel={() => (addingDrawing = false)} />
     </div>
   {/if}
-  {#if pages.length}
-    <div class="flex justify-center px-5 w-full md:hidden">
-      <img src="/edit.svg" class="mr-2" alt="a pen, edit pdf name" />
-      <input
-        placeholder="Rename your PDF here"
-        type="text"
-        class="flex-grow bg-transparent"
-        bind:value={pdfName} />
+  
+  {#if addingSignature}
+    <div
+      transition:fly={{ y: -200, duration: 500 }}
+      class="fixed z-10 top-0 left-0 right-0 border-b border-gray-300 bg-white
+      shadow-lg"
+      style="height: 50%;">
+      <div class="flex flex-col items-center justify-center h-full p-6">
+        <h3 class="text-lg font-semibold mb-4">Add Signature</h3>
+        
+        <!-- Font Selection -->
+        <div class="w-full max-w-md mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Signature Style:</label>
+                           <select
+                   bind:value={signatureFont}
+                   class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                   on:change={async () => {
+                     try {
+                       await fetchFont(signatureFont);
+                     } catch (e) {
+                       console.log(`Font ${signatureFont} not available, using fallback`);
+                       signatureFont = 'Times-Roman';
+                     }
+                   }}>
+                   <option value="Satisfy">Satisfy (Signature)</option>
+                   <option value="Times-Roman">Times-Roman</option>
+                   <option value="Helvetica">Helvetica</option>
+                   <option value="Courier">Courier</option>
+                   <option value="標楷體">標楷體 (Chinese)</option>
+                 </select>
+        </div>
+        
+        <!-- Text Input -->
+        <input
+          type="text"
+          bind:value={signatureText}
+          placeholder="Enter your signature"
+          class="w-full max-w-md px-4 py-2 border border-gray-300 rounded-md text-lg mb-4"
+          style="font-family: '{signatureFont}', serif; font-size: 24px; color: #374151;"
+          on:keydown={async (e) => {
+            if (e.key === 'Enter' && signatureText.trim()) {
+              await addTypedSignature(signatureText.trim());
+              signatureText = "";
+              addingSignature = false; // Close the modal
+            }
+          }} />
+        
+        <!-- Preview -->
+        {#if signatureText.trim()}
+          <div class="w-full max-w-md mb-4 p-3 border border-gray-200 rounded-md bg-gray-50">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Preview:</label>
+            <div 
+              class="text-center"
+              style="font-family: '{signatureFont}', serif; font-size: 24px; color: #374151;">
+              {signatureText}
+            </div>
+          </div>
+        {/if}
+        
+        <!-- Action Buttons -->
+        <div class="flex gap-3">
+          <button
+            on:click={() => {
+              addingSignature = false;
+              addingDrawing = true;
+            }}
+            class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+            ✏️ Draw Instead
+          </button>
+          <button
+            on:click={() => addingSignature = false}
+            class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600">
+            Cancel
+          </button>
+          <button
+            on:click={async () => {
+              if (signatureText.trim()) {
+                await addTypedSignature(signatureText.trim());
+                signatureText = "";
+                addingSignature = false; // Close the modal
+              }
+            }}
+            class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:opacity-50"
+            disabled={!signatureText.trim()}>
+            Add Signature
+          </button>
+        </div>
+      </div>
     </div>
+  {/if}
+  {#if pages.length}
+
     <div class="w-full">
       {#each pages as page, pIndex (page)}
         <div
@@ -312,19 +401,8 @@
             <div
               class="absolute top-0 left-0 transform origin-top-left"
               style="transform: scale({pagesScale[pIndex]}); touch-action: none;">
-              {#each allObjects[pIndex] as object (object.id)}
-                {#if object.type === 'image'}
-                  <Image
-                    on:update={e => updateObject(object.id, e.detail)}
-                    on:delete={() => deleteObject(object.id)}
-                    file={object.file}
-                    payload={object.payload}
-                    x={object.x}
-                    y={object.y}
-                    width={object.width}
-                    height={object.height}
-                    pageScale={pagesScale[pIndex]} />
-                {:else if object.type === 'text'}
+              {#each (allObjects[pIndex] || []) as object (object.id)}
+                {#if object.type === 'text'}
                   <Text
                     on:update={e => updateObject(object.id, e.detail)}
                     on:delete={() => deleteObject(object.id)}
@@ -336,6 +414,7 @@
                     lineHeight={object.lineHeight}
                     fontFamily={object.fontFamily}
                     pageScale={pagesScale[pIndex]} />
+
                 {:else if object.type === 'drawing'}
                   <Drawing
                     on:update={e => updateObject(object.id, e.detail)}
@@ -349,7 +428,6 @@
                     pageScale={pagesScale[pIndex]} />
                 {/if}
               {/each}
-
             </div>
           </div>
         </div>
