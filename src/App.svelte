@@ -91,11 +91,16 @@
   function addTextField(text = "New Text Field") {
     const id = genID();
     fetchFont(currentFont);
+    
+    // Check if it's a mobile device
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                     window.innerWidth <= 768;
+    
     const object = {
       id,
       text,
       type: "text",
-      size: 16,
+      size: isMobile ? 30 : 16, // 30px on mobile, 16px on desktop
       width: 0, // recalculate after editing
       lineHeight: 1.4,
       fontFamily: currentFont,

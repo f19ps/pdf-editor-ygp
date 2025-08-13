@@ -1,0 +1,14 @@
+build:
+  languages:
+    - nodejs
+  config:
+    NPM_CONFIG_PRODUCTION: false
+    NODE_ENV: development
+
+release:
+  command:
+    - npm run build
+  image: web
+
+run:
+  web: npm start
